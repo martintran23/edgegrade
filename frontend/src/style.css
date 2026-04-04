@@ -1,0 +1,120 @@
+:root {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  line-height: 1.5;
+  color: #e8eaed;
+  background: #0f1115;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 3rem;
+}
+
+.header h1 {
+  margin: 0 0 0.35rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.tagline {
+  margin: 0;
+  color: #9aa0a6;
+  max-width: 42rem;
+}
+
+.panel {
+  margin-top: 1.75rem;
+  padding: 1.25rem 1.5rem;
+  background: #1a1d24;
+  border: 1px solid #2a2f3a;
+  border-radius: 12px;
+}
+
+.upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  background: #2d3340;
+  border: 1px solid #3d4555;
+  font-size: 0.95rem;
+}
+
+.upload input {
+  display: none;
+}
+
+.status {
+  margin: 1rem 0 0;
+  color: #8ab4f8;
+}
+
+.error {
+  margin: 1rem 0 0;
+  color: #f28b82;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.layout {
+  display: grid;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 720px) {
+  .layout {
+    grid-template-columns: 1fr 320px;
+    align-items: start;
+  }
+}
+
+.preview {
+  margin: 0;
+  background: #12141a;
+  border-radius: 12px;
+  border: 1px solid #2a2f3a;
+  overflow: hidden;
+}
+
+.preview img {
+  display: block;
+  width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+.results h2 {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
+}
+
+.results dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 1rem;
+  font-size: 0.95rem;
+}
+
+.results dt {
+  color: #9aa0a6;
+  font-weight: 500;
+}
+
+.results dd {
+  margin: 0;
+}
