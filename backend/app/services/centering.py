@@ -3,7 +3,7 @@ Centering measurement (Phase 1: heuristic / stub-quality).
 
 Interprets the **warped, top-down** card crop: outer boundary is the image frame; the
 printed inner frame (artwork border) is approximated via edge density scans from each side.
-This is intentionally simple — replace with sub-pixel border models or ML segmentation later.
+This is intentionally simple; replace with sub-pixel border models or ML segmentation later.
 
 Future hooks:
 - ``measure_defects`` / surface maps can consume the same ``warped`` tensor alongside these margins.
@@ -95,7 +95,7 @@ def measure_centering_margins_px(warped_bgr: np.ndarray) -> tuple[int, int, int,
     bottom = int(np.clip(bottom, 0, h // 2 - 1))
 
     if left + right >= w or top + bottom >= h:
-        # Flat edge map — neutral split
+        # Flat edge map: neutral split
         return w // 4, w // 4, h // 4, h // 4
 
     return left, right, top, bottom
@@ -137,7 +137,7 @@ def approximate_psa_from_centering(deviation_pct: float) -> float:
     """
     Map centering deviation to a coarse PSA-like 1–10 (whole numbers).
 
-    This is **not** official — PSA uses human graders and holistic criteria.
+    This is **not** official; PSA uses human graders and holistic criteria.
     """
     if deviation_pct <= 2.0:
         return 10.0

@@ -1,1 +1,1 @@
-"""Card Grading AI — FastAPI application package."""
+"""Card Grading AI: FastAPI application package."""

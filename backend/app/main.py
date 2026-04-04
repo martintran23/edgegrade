@@ -1,5 +1,5 @@
 """
-Card Grading AI — FastAPI entrypoint.
+Card Grading AI: FastAPI entrypoint.
 
 Run locally::
 

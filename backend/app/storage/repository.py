@@ -25,5 +25,5 @@ class NullScanRepository:
 
 
 def get_repository() -> ScanRepository:
-    """Factory for DI — swap implementation when SQLite is wired up."""
+    """Factory for DI; swap implementation when SQLite is wired up."""
     return NullScanRepository()

@@ -50,7 +50,7 @@ export default function App() {
       <header className="header">
         <h1>Card Grading AI</h1>
         <p className="tagline">
-          Upload a trading card photo — centering metrics and rough grade hints (centering only).
+          Upload a trading card photo: centering metrics and rough grade hints (centering only).
         </p>
       </header>
 

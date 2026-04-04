@@ -28,7 +28,7 @@ def decode_image_from_bytes(data: bytes) -> np.ndarray:
     arr = np.frombuffer(data, dtype=np.uint8)
     image = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     if image is None:
-        raise ValueError("Could not decode image — unsupported or corrupt file.")
+        raise ValueError("Could not decode image: unsupported or corrupt file.")
     return image
 
 
