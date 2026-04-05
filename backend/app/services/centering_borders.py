@@ -160,11 +160,130 @@ def _try_blue_panel_margins(bgr: np.ndarray) -> tuple[float, float, float, float
 
 def _yellow_mask(bgr: np.ndarray) -> np.ndarray:
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    # Broad yellow / tan (washed scans, warm lighting)
-    m = cv2.inRange(hsv, np.array([8, 38, 50], dtype=np.uint8), np.array([52, 255, 255], dtype=np.uint8))
+    # Broad yellow / tan — low S/V floors catch pale printer ink and flatbed shadows.
+    m = cv2.inRange(hsv, np.array([6, 22, 40], dtype=np.uint8), np.array([54, 255, 255], dtype=np.uint8))
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, k, iterations=1)
     return m
+
+
+def _yellow_rim_mean_score(bgr: np.ndarray) -> float:
+    """Mean yellow-mask hit rate on thin outer strips (0–1)."""
+    h, w = bgr.shape[:2]
+    if h < 32 or w < 32:
+        return 0.0
+    m = _yellow_mask(bgr)
+    mt = max(2, int(0.09 * h))
+    mw = max(2, int(0.065 * w))
+    top = float(np.mean(m[:mt, :] > 0))
+    bot = float(np.mean(m[h - mt :, :] > 0))
+    left = float(np.mean(m[:, :mw] > 0))
+    right = float(np.mean(m[:, w - mw :] > 0))
+    return 0.25 * (top + bot + left + right)
+
+
+def _prefer_yellow_over_blue_panel(
+    warped_bgr: np.ndarray,
+    yellow: tuple[float, float, float, float, dict],
+    blue: tuple[float, float, float, float, dict],
+) -> bool:
+    """
+    Classic yellow-border fronts with blue (e.g. Water) art match **both** blue-panel
+    (blue core) and yellow HSV. Prefer yellow seams. Printer scans may desaturate the rim,
+    so we also fall back when blue TB is extreme but yellow is saner and some rim yellow remains.
+    """
+    yl, yr, yt, yb, _ = yellow
+    _bl, _br, bt, bb, _ = blue
+    rim = _yellow_rim_mean_score(warped_bgr)
+    if rim >= 0.18:
+        return True
+    s_b = bt + bb
+    s_y = yt + yb
+    if s_b <= 1e-6 or s_y <= 1e-6:
+        return False
+    small_b = min(bt, bb) / s_b
+    small_y = min(yt, yb) / s_y
+    if rim >= 0.14 and small_b < 0.36 and small_y > small_b + 0.04:
+        return True
+    # Desaturated rim but blue TB clearly worse than yellow (common on printer scans).
+    if rim >= 0.10:
+        pct_b = 100.0 * bt / s_b
+        pct_y = 100.0 * yt / s_y
+        skew_b = abs(pct_b - 50.0)
+        skew_y = abs(pct_y - 50.0)
+        if skew_b >= skew_y + 6.0:
+            return True
+    return False
+
+
+def _yellow_row_profile_tb(mask: np.ndarray) -> np.ndarray:
+    """
+    Per-row yellow fraction for **top/bottom** seams.
+
+    Full-width means dip when the **center** of a row is non-yellow (name bar, holo, print
+    voids) while the true outer yellow frame is still present — that fires the seam too early
+    and shrinks ``top`` (bad splits like 25/75). Side **lobes** exclude the central ~24%–76%
+    band and average left/right art-adjacent windows instead.
+    """
+    h, w = mask.shape[:2]
+    trim_x = max(1, int(0.02 * w))
+    x_mid0, x_mid1 = int(0.38 * w), int(0.62 * w)
+    if x_mid1 <= x_mid0 + 8:
+        return np.mean(mask[:, trim_x : w - trim_x] > 0, axis=1).astype(np.float32)
+    left_lo, left_hi = trim_x, x_mid0
+    right_lo, right_hi = x_mid1, w - trim_x
+    if left_hi <= left_lo + 6 or right_hi <= right_lo + 6:
+        return np.mean(mask[:, trim_x : w - trim_x] > 0, axis=1).astype(np.float32)
+    rl = np.mean(mask[:, left_lo:left_hi] > 0, axis=1).astype(np.float32)
+    rr = np.mean(mask[:, right_lo:right_hi] > 0, axis=1).astype(np.float32)
+    return 0.5 * (rl + rr)
+
+
+def _first_below_thresh_subpx_top(sig: np.ndarray, y0: int, y1: int, thresh: float) -> float | None:
+    """First row (from top) where sig drops below thresh; linear sub-pixel between y-1 and y."""
+    y1 = min(y1, len(sig))
+    y0 = max(0, y0)
+    for y in range(y0, y1):
+        if float(sig[y]) >= thresh:
+            continue
+        if y == y0:
+            return float(y)
+        v0, v1 = float(sig[y - 1]), float(sig[y])
+        if v0 < thresh:
+            return float(y)
+        if abs(v1 - v0) < 1e-9:
+            return float(y)
+        t = (thresh - v0) / (v1 - v0)
+        return float(y - 1) + max(0.0, min(1.0, t))
+    return None
+
+
+def _first_below_thresh_subpx_bottom(
+    sig: np.ndarray, y_lo: int, y_hi: int, thresh: float
+) -> float | None:
+    """
+    Distance from image **bottom** to inner seam. Scan ``y`` from ``y_hi`` (near bottom)
+    down to ``y_lo`` (exclusive). Row ``y+1`` is toward the bottom (yellow); ``y`` is inner.
+    """
+    h = len(sig)
+    y_hi = min(h - 1, max(0, y_hi))
+    y_lo = max(0, min(h - 1, y_lo))
+    for y in range(y_hi, y_lo, -1):
+        if float(sig[y]) >= thresh:
+            continue
+        if y + 1 >= h:
+            return float((h - 1) - y)
+        v_lo, v_hi = float(sig[y]), float(sig[y + 1])
+        if v_hi < thresh:
+            continue
+        if abs(v_lo - v_hi) < 1e-9:
+            y_seam = float(y)
+        else:
+            t = (thresh - v_hi) / (v_lo - v_hi)
+            t = max(0.0, min(1.0, t))
+            y_seam = float(y + 1) + t * (float(y) - float(y + 1))
+        return float(h - 1) - y_seam
+    return None
 
 
 def _try_yellow_frame_margins(bgr: np.ndarray) -> tuple[float, float, float, float, dict] | None:
@@ -181,16 +300,16 @@ def _try_yellow_frame_margins(bgr: np.ndarray) -> tuple[float, float, float, flo
         return None
 
     ry0, ry1 = int(0.18 * h), int(0.82 * h)
-    rx0, rx1 = int(0.18 * w), int(0.82 * w)
     ry0, ry1 = max(0, ry0), min(h, max(ry0 + 1, ry1))
-    rx0, rx1 = max(0, rx0), min(w, max(rx0 + 1, rx1))
 
     col_y = np.mean(mask[ry0:ry1, :] > 0, axis=0).astype(np.float32)
-    row_y = np.mean(mask[:, rx0:rx1] > 0, axis=1).astype(np.float32)
+    row_raw = _yellow_row_profile_tb(mask)
     sw = max(7, min(w // 25, 31) | 1)
-    sh = max(7, min(h // 25, 31) | 1)
+    sh_stat = max(7, min(h // 25, 31) | 1)
+    sh_cross = max(5, min(h // 32, 13) | 1)
     col_y = _smooth_1d(col_y, sw)
-    row_y = _smooth_1d(row_y, sh)
+    row_stat = _smooth_1d(row_raw, sh_stat)
+    row_cross = _smooth_1d(row_raw, sh_cross)
 
     rim_x = max(2, min(int(0.007 * w), w // 25))
     rim_y = max(2, min(int(0.007 * h), h // 25))
@@ -199,7 +318,7 @@ def _try_yellow_frame_margins(bgr: np.ndarray) -> tuple[float, float, float, flo
 
     # Transition: high yellow coverage in border columns → low in art.
     hi_l = float(np.percentile(col_y[rim_x : min(w_band, w // 2)], 88)) if w_band > rim_x + 2 else 0.0
-    hi_t = float(np.percentile(row_y[rim_y : min(h_band, h // 2)], 88)) if h_band > rim_y + 2 else 0.0
+    hi_t = float(np.percentile(row_stat[rim_y : min(h_band, h // 2)], 88)) if h_band > rim_y + 2 else 0.0
     if hi_l < 0.34 or hi_t < 0.34:
         return None
 
@@ -216,16 +335,8 @@ def _try_yellow_frame_margins(bgr: np.ndarray) -> tuple[float, float, float, flo
         if col_y[x] < thresh_l:
             right = float((w - 1) - x)
             break
-    top = None
-    for y in range(rim_y, h_band):
-        if row_y[y] < thresh_t:
-            top = float(y)
-            break
-    bottom = None
-    for y in range(h - 1 - rim_y, h - h_band - 1, -1):
-        if row_y[y] < thresh_t:
-            bottom = float((h - 1) - y)
-            break
+    top = _first_below_thresh_subpx_top(row_cross, rim_y, h_band, thresh_t)
+    bottom = _first_below_thresh_subpx_bottom(row_cross, h - h_band - 1, h - 1 - rim_y, thresh_t)
 
     if None in (left, right, top, bottom):
         return None
@@ -242,16 +353,16 @@ def _try_yellow_frame_margins(bgr: np.ndarray) -> tuple[float, float, float, flo
         "method": "yellow_hsv",
         "rejected": False,
         "col_sig": col_y,
-        "row_sig": row_y,
+        "row_sig": row_cross,
     }
     return left, right, top, bottom, meta
 
 
 def measure_margins_combined(warped_bgr: np.ndarray) -> tuple[float, float, float, float, dict]:
     """
-    Order: **blue panel** (silver-border era) → gradient; optional **yellow nudge** when
-    it tightly agrees with gradient. Blue path fixes centered SV cards where edges alone
-    track the wrong vertical features.
+    Order: **blue panel** (SV-style silver + blue face) **or** **yellow HSV** when both
+    match (yellow-border + blue art) — yellow wins if the outer rim is yellow and/or blue
+    TB is extreme vs yellow. Then gradient; optional **yellow nudge** when it agrees.
     """
     blue = _try_blue_panel_margins(warped_bgr)
     yellow = _try_yellow_frame_margins(warped_bgr)
@@ -260,6 +371,15 @@ def measure_margins_combined(warped_bgr: np.ndarray) -> tuple[float, float, floa
     pmeta["method"] = "edge_projection"
 
     if blue is not None:
+        # Blue core matches SV silver-border **and** yellow-border + blue art; prefer yellow
+        # HSV seams when the layout is clearly classic yellow (or blue TB is implausible).
+        if yellow is not None and _prefer_yellow_over_blue_panel(warped_bgr, yellow, blue):
+            yl, yr, yt, yb, ymeta = yellow
+            ymeta = dict(ymeta)
+            ymeta["method"] = "yellow_hsv"
+            ymeta["skipped_blue_panel"] = True
+            ymeta["yellow_rim_score"] = float(_yellow_rim_mean_score(warped_bgr))
+            return yl, yr, yt, yb, ymeta
         bl, br, bt, bb, bmeta = blue
         return bl, br, bt, bb, dict(bmeta)
 
@@ -268,6 +388,7 @@ def measure_margins_combined(warped_bgr: np.ndarray) -> tuple[float, float, floa
 
     yl, yr, yt, yb, ymeta = yellow
     ymeta = dict(ymeta)
+    rim_yellow = float(_yellow_rim_mean_score(warped_bgr))
 
     def lr_share(l: float, r: float) -> float:
         t = l + r
@@ -292,11 +413,26 @@ def measure_margins_combined(warped_bgr: np.ndarray) -> tuple[float, float, floa
         yb = float(np.clip(yb + bias_tb, 0.0, hh / 2.0 - 1.0))
         ymeta = dict(ymeta)
         ymeta["method"] = "yellow_hsv+inward_bias"
+        ymeta["yellow_rim_score"] = rim_yellow
         return yl, yr, yt, yb, ymeta
 
     dlr = abs(lr_share(yl, yr) - lr_share(proj_l, proj_r))
     dtb = abs(tb_share(yt, yb) - tb_share(proj_t, proj_b))
-    # Heavy projection weight: yellow uses integer seam indices and can skew 60/40 vs 40/60 by 1–2%.
+
+    # Printer scans / shadows: |Gy| projection often disagrees strongly with yellow TB on
+    # real yellow borders. Never drop yellow for pure projection when the rim is yellow or
+    # when TB splits diverge by more than a few points (previous bug: 25/75 projection won).
+    if rim_yellow >= 0.10:
+        ymeta["method"] = "yellow_hsv"
+        ymeta["yellow_rim_score"] = rim_yellow
+        return yl, yr, yt, yb, ymeta
+    if dtb > 8.0:
+        ymeta["method"] = "yellow_hsv_preferred_tb_vs_projection"
+        ymeta["yellow_rim_score"] = rim_yellow
+        ymeta["proj_tb_disagree_pp"] = dtb
+        return yl, yr, yt, yb, ymeta
+
+    # Heavy projection weight when both paths agree (non–yellow-border lookalikes).
     _PROJ_BLEND = 0.94
     _YL_BLEND = 1.0 - _PROJ_BLEND
     if dlr <= 8.0 and dtb <= 8.0:
@@ -305,6 +441,7 @@ def measure_margins_combined(warped_bgr: np.ndarray) -> tuple[float, float, floa
             "rejected": False,
             "col_sig": pmeta.get("col_sig"),
             "row_sig": pmeta.get("row_sig"),
+            "yellow_rim_score": rim_yellow,
         }
         return (
             _PROJ_BLEND * proj_l + _YL_BLEND * yl,

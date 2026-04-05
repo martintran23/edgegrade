@@ -14,6 +14,7 @@ type AnalyzeResponse = {
   warp_width?: number | null;
   warp_height?: number | null;
   detection_confidence: string;
+  centering_method?: string | null;
 };
 
 export default function App() {
@@ -95,6 +96,12 @@ export default function App() {
               <dd>{result.estimated_grades.CGC}</dd>
               <dt>Detection</dt>
               <dd>{result.detection_confidence}</dd>
+              {result.centering_method != null && result.centering_method !== "" && (
+                <>
+                  <dt>Centering method</dt>
+                  <dd className="mono">{result.centering_method}</dd>
+                </>
+              )}
               {result.warp_width != null && result.warp_height != null && (
                 <>
                   <dt>Normalized crop</dt>

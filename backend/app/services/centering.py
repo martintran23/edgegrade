@@ -1,9 +1,9 @@
 """
 Centering from the **warped card rectangle** using edge projection (symmetric thresholds).
 
-Definition: distance from each **physical edge of the warp** to the inner print frame.
-Uses **HSV yellow-frame** detection when the layout matches (typical Pokémon fronts), else
-**gradient peaks** in outer bands (see ``centering_borders.py``, ``centering_projection.py``).
+Definition: distance from each **physical edge of the warp** to the inner print frame
+(sub-pixel; responses round to 0.001 px). Uses **HSV** blue/yellow frame cues when they
+match, else **gradient** projection (see ``centering_borders.py``, ``centering_projection.py``).
 
 Grading uses **threshold-based** PSA-style tiers from raw margins (``centering_grades``).
 """
@@ -61,6 +61,14 @@ def build_analyze_response(
         except OSError as e:
             logger.warning("centering debug save failed: %s", e)
 
+    # Sub-pixel seams can carry float dust; quantize for API + grades (0.001 px).
+    left, right, top, bottom = (
+        round(float(left), 3),
+        round(float(right), 3),
+        round(float(top), 3),
+        round(float(bottom), 3),
+    )
+
     ratios = compute_centering_ratios(left, right, top, bottom)
     lr_str = str(ratios["lr_display"])
     tb_str = str(ratios["tb_display"])
@@ -84,4 +92,5 @@ def build_analyze_response(
         warp_width=ww,
         warp_height=hh,
         detection_confidence=detection_confidence,
+        centering_method=str(meta.get("method")) if meta.get("method") is not None else None,
     )

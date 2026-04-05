@@ -4,12 +4,12 @@ from pydantic import BaseModel, Field
 
 
 class MarginsPx(BaseModel):
-    """Raw margin depths from the warp edges (pixels)."""
+    """Margin depths from the warp edges (pixels, sub-pixel precision)."""
 
-    left: float = Field(..., description="Left margin depth in px")
-    right: float = Field(..., description="Right margin depth in px")
-    top: float = Field(..., description="Top margin depth in px")
-    bottom: float = Field(..., description="Bottom margin depth in px")
+    left: float = Field(..., description="Left margin depth in px (typically 3 decimal places)")
+    right: float = Field(..., description="Right margin depth in px (typically 3 decimal places)")
+    top: float = Field(..., description="Top margin depth in px (typically 3 decimal places)")
+    bottom: float = Field(..., description="Bottom margin depth in px (typically 3 decimal places)")
 
 
 class CenteringMetrics(BaseModel):
@@ -46,4 +46,8 @@ class AnalyzeCardResponse(BaseModel):
     detection_confidence: str = Field(
         "medium",
         description="Heuristic confidence in contour-based card detection: low|medium|high",
+    )
+    centering_method: str | None = Field(
+        None,
+        description="Which seam detector produced margins (e.g. yellow_hsv, blue_panel_hsv, edge_projection)",
     )

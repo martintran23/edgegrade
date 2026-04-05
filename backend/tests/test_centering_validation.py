@@ -11,11 +11,12 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 from app.core.config import settings
 from app.services.card_detection import decode_image_from_bytes, extract_normalized_card
-from app.services.centering_borders import measure_margins_combined
+from app.services.centering_borders import measure_margins_combined, _try_yellow_frame_margins
 from app.services.centering_grades import compute_centering_ratios
 from app.services.centering_projection import measure_margins_edge_projection
 
@@ -85,6 +86,11 @@ class TestCenteringProjectionSynthetic(unittest.TestCase):
         self.assertFalse(meta.get("rejected"), msg=str(meta))
         rd = compute_centering_ratios(l, r, t, b)
         self.assertEqual(str(rd["lr_display"]), "60/40", msg=f"{meta.get('method')} {rd['lr_display']} {l:.3f},{r:.3f}")
+        self.assertIn(
+            meta.get("method"),
+            ("edge_projection+yellow_nudge", "yellow_hsv", "yellow_hsv_preferred_tb_vs_projection"),
+            msg=str(meta),
+        )
 
     def test_55_45_top_bottom(self) -> None:
         h, w = 1120, 800
@@ -97,6 +103,39 @@ class TestCenteringProjectionSynthetic(unittest.TestCase):
         tb = _parse_split(str(rd["tb_display"]))
         exp = 100.0 * bt / (bt + bb)
         self.assertLess(abs(tb - exp), 1.1, msg=f"TB got {tb} expected ~{exp:.0f} t,b={t:.1f},{b:.1f}")
+
+
+class TestYellowTbRobustness(unittest.TestCase):
+    """TB seams must not trigger on full-width dips from center-only print voids / text."""
+
+    def test_side_lobe_row_profile_ignores_center_hole_in_top_bar(self) -> None:
+        h, w = 1120, 800
+        b = 56
+        im = _synth_card(h, w, b, b, b, b)
+        im[b : b + 24, int(0.38 * w) : int(0.62 * w), :] = (70, 70, 70)
+        got = _try_yellow_frame_margins(im)
+        self.assertIsNotNone(got, msg="yellow frame should still be detected")
+        _l, _r, t, bb, _meta = got
+        self.assertLess(abs(float(t) - b), 6.0, msg=f"top seam {t} expected ~{b} (not center-void early)")
+        self.assertLess(abs(float(bb) - b), 6.0, msg=f"bottom seam {bb} expected ~{b}")
+
+
+class TestYellowBorderBlueCorePrefersYellow(unittest.TestCase):
+    """Yellow-border + blue art matches blue-panel HSV; combined must still use yellow seams."""
+
+    def test_skips_blue_panel_when_rim_is_yellow(self) -> None:
+        h, w = 1120, 800
+        b = 52
+        im = np.zeros((h, w, 3), dtype=np.uint8)
+        im[:, :] = (0, 230, 255)
+        roi_h, roi_w = h - 2 * b, w - 2 * b
+        hsv_fill = np.full((roi_h, roi_w, 3), (105, 200, 220), dtype=np.uint8)
+        inner = cv2.cvtColor(hsv_fill, cv2.COLOR_HSV2BGR)
+        inner[::3, :, :] = 60
+        im[b : h - b, b : w - b] = inner
+        _l, _r, _t, _b, meta = measure_margins_combined(im)
+        self.assertTrue(meta.get("skipped_blue_panel"), msg=str(meta))
+        self.assertEqual(meta.get("method"), "yellow_hsv")
 
 
 class TestReferenceSilverBlueCentered(unittest.TestCase):

@@ -2,8 +2,9 @@
 Edge-projection centering: outer warp boundary → inner frame edge.
 
 Measures distance from the **physical edges of the warped image** (the card quad) to
-the strongest **in-band** gradient peaks, using symmetric thresholds. Search is limited
-to outer 25% of width/height so interior artwork edges are ignored.
+the inner frame using mean ``|G|`` in a core band, then **parabolic sub-pixel** peaks on
+that 1D profile (tight window around the coarse seam). A small calibrated inward bias
+removes residual blur/Scharr shift on sharp step edges. Search stays in the outer 25%.
 """
 
 from __future__ import annotations
@@ -20,12 +21,60 @@ _CORE_X0_FRAC = 0.12
 _CORE_X1_FRAC = 0.88
 
 # Gaussian (5×5) + Scharr + smoothed projection peaks sit slightly **inside** the true
-# print edge on sharp step borders. Calibrated on rectangular synth cards so uneven
-# centering (e.g. 60/40) keeps the correct split; symmetric bias cancels for 50/50.
+# print edge on sharp step borders. Parabolic subpixel refinement on |G| reduces that
+# offset, so the scalar bias can be a bit smaller while keeping synth ratios correct.
 _INWARD_BIAS_PER_SMOOTH_PX = 0.5
-# Slightly above the minimal synth fit so real warps / peak-vs-cross picks still land on
-# 60/40 and 40/60 (not 62/38 / 41/59) when blur shifts the seam a fraction of a pixel more.
-_INWARD_BIAS_INTERCEPT_PX = 1.06
+_INWARD_BIAS_INTERCEPT_PX = 0.92
+
+
+def _parabolic_peak_subpx(sig: np.ndarray, i_center: int) -> float:
+    """
+    Sub-pixel location of a local maximum near ``i_center`` on 1D signal ``sig``.
+
+    Fits a parabola through ``(i-1, i, i+1)`` and returns the vertex in index units.
+    """
+    n = int(sig.shape[0])
+    i = int(np.clip(i_center, 1, n - 2))
+    y0, y1, y2 = float(sig[i - 1]), float(sig[i]), float(sig[i + 1])
+    if y1 < y0 and y1 < y2:
+        return float(i_center)
+    denom = y0 - 2.0 * y1 + y2
+    if abs(denom) < 1e-12:
+        return float(i_center)
+    dx = 0.5 * (y0 - y2) / denom
+    return float(i) + float(np.clip(dx, -0.95, 0.95))
+
+
+def _refine_margin_to_gradient_peak(
+    sig: np.ndarray,
+    coord_guess: float,
+    band_lo: int,
+    band_hi: int,
+    *,
+    window: int = 5,
+) -> float:
+    """
+    Snap a margin coordinate (distance from the same physical edge as ``band_lo``)
+    to the parabolic peak of ``sig`` in a small window around ``coord_guess``.
+
+    For LR top-of-image / left edge: coordinate is column or row index from that edge.
+    """
+    band_hi = min(band_hi, sig.shape[0] - 1)
+    band_lo = max(0, band_lo)
+    if band_hi <= band_lo + 2:
+        return float(coord_guess)
+    ic = int(np.clip(round(coord_guess), band_lo + 1, band_hi - 2))
+    half = window // 2
+    lo = max(band_lo, ic - half)
+    hi = min(band_hi + 1, ic + half + 1)
+    if hi - lo < 3:
+        lo = max(band_lo, band_hi - 3)
+        hi = band_hi + 1
+    seg = sig[lo:hi]
+    if seg.size < 3:
+        return float(coord_guess)
+    k = int(np.argmax(seg))
+    return _parabolic_peak_subpx(sig, lo + k)
 
 
 def _edge_projection_inward_bias_px(smooth_window: int) -> float:
@@ -212,6 +261,40 @@ def measure_margins_edge_projection(
         bottom = float(np.clip(bot_cross, 0.0, h / 2.0 - 1.0))
     else:
         bottom = float(np.clip(bot_peak, 0.0, h / 2.0 - 1.0))
+
+    # Parabolic peak on raw |G| projection (pre-normalize) for pixel-accurate seam position.
+    left = float(
+        np.clip(
+            _refine_margin_to_gradient_peak(col_sig, left, rim_x, w_side - 1),
+            0.0,
+            w / 2.0 - 1.0,
+        )
+    )
+    x_inner = (w - 1.0) - right
+    x_inner = float(
+        np.clip(
+            _refine_margin_to_gradient_peak(col_sig, x_inner, w - w_side, w - 1 - rim_x),
+            float(w - w_side),
+            float(w - 1 - rim_x),
+        )
+    )
+    right = float(np.clip((w - 1.0) - x_inner, 0.0, w / 2.0 - 1.0))
+    top = float(
+        np.clip(
+            _refine_margin_to_gradient_peak(row_sig, top, rim_y, h_side - 1),
+            0.0,
+            h / 2.0 - 1.0,
+        )
+    )
+    y_inner = (h - 1.0) - bottom
+    y_inner = float(
+        np.clip(
+            _refine_margin_to_gradient_peak(row_sig, y_inner, h - h_side, h - 1 - rim_y),
+            float(h - h_side),
+            float(h - 1 - rim_y),
+        )
+    )
+    bottom = float(np.clip((h - 1.0) - y_inner, 0.0, h / 2.0 - 1.0))
 
     meta: dict = {
         "rejected": False,
