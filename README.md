@@ -7,7 +7,7 @@ Web app that analyzes photos of trading cards (Pokémon, sports, and similar) wi
 - Upload a card image from the browser
 - Backend detects the card outline (Canny + largest quadrilateral contour), applies a perspective warp to a top-down view
 - Heuristic centering (left/right and top/bottom as percentage splits)
-- Estimated PSA-, BGS-, and CGC-style scores derived only from centering (educational / demo use)
+- **Centering metrics:** split strings, smaller-side percentages, raw margins (px), and PSA / BGS / CGC **demo** scores from the same measurements (educational use)
 
 Planned later: surface defects, edge/corner analysis, scanner integration, persistent scan history (see `backend/app/ml/` and `backend/app/storage/` stubs).
 
@@ -98,7 +98,10 @@ VITE_API_BASE=https://your-api.example.com
 {
   "centering": {
     "left_right": "55/45",
-    "top_bottom": "60/40"
+    "top_bottom": "60/40",
+    "lr_small_pct": 45.3,
+    "tb_small_pct": 40.1,
+    "margins_px": { "left": 52.0, "right": 63.0, "top": 48.0, "bottom": 72.0 }
   },
   "estimated_grades": {
     "PSA": 8.0,
@@ -124,4 +127,4 @@ Static output is written to `frontend/dist/`; serve it behind any static host or
 
 ## Disclaimer
 
-Grade estimates are **heuristic** and based only on automated centering signals. They are not affiliated with PSA, Beckett, CGC, or any grading company.
+Centering tiers are **heuristic** and based only on automated margin measurements. They are not official PSA grades and are not affiliated with PSA or any grading company.

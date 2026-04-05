@@ -17,3 +17,7 @@ frontend/dist/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Centering debug dumps (enable CARDGRADING_DEBUG_CENTERING=1)
+backend/debug_outputs/
+debug_outputs/

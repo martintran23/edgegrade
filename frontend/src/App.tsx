@@ -3,7 +3,13 @@ import { useCallback, useState } from "react";
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
 
 type AnalyzeResponse = {
-  centering: { left_right: string; top_bottom: string };
+  centering: {
+    left_right: string;
+    top_bottom: string;
+    lr_small_pct?: number;
+    tb_small_pct?: number;
+    margins_px?: { left: number; right: number; top: number; bottom: number };
+  };
   estimated_grades: { PSA: number; BGS: number; CGC: number };
   warp_width?: number | null;
   warp_height?: number | null;
