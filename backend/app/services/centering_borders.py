@@ -12,7 +12,11 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from app.services.centering_projection import _smooth_1d, measure_margins_edge_projection
+from app.services.centering_projection import (
+    _edge_projection_inward_bias_px,
+    _smooth_1d,
+    measure_margins_edge_projection,
+)
 
 
 def _first_ge_cross_subpx(sig: np.ndarray, lo: int, hi: int, thresh: float) -> float | None:
@@ -72,12 +76,17 @@ def _try_blue_panel_margins(bgr: np.ndarray) -> tuple[float, float, float, float
     ry0, ry1 = max(0, ry0), min(h, max(ry0 + 1, ry1))
     rx0, rx1 = max(0, rx0), min(w, max(rx0 + 1, rx1))
 
-    col_b = np.mean(inner[ry0:ry1, :], axis=0).astype(np.float32)
-    row_b = np.mean(inner[:, rx0:rx1], axis=1).astype(np.float32)
-    sw = max(7, min(w // 25, 29) | 1)
-    sh = max(7, min(h // 25, 29) | 1)
-    col_b = _smooth_1d(col_b, sw)
-    row_b = _smooth_1d(row_b, sh)
+    col_raw = np.mean(inner[ry0:ry1, :], axis=0).astype(np.float32)
+    row_raw = np.mean(inner[:, rx0:rx1], axis=1).astype(np.float32)
+    # Wide smoothing for baselines / peaks (stable); narrower for seam crossing (less LR bias).
+    sw_stat = max(7, min(w // 25, 29) | 1)
+    sh_stat = max(7, min(h // 25, 29) | 1)
+    sw_cross = max(5, min(w // 32, 9) | 1)
+    sh_cross = max(5, min(h // 32, 9) | 1)
+    col_stat = _smooth_1d(col_raw, sw_stat)
+    row_stat = _smooth_1d(row_raw, sh_stat)
+    col_cross = _smooth_1d(col_raw, sw_cross)
+    row_cross = _smooth_1d(row_raw, sh_cross)
 
     rim_x = max(2, min(int(0.007 * w), w // 25))
     rim_y = max(2, min(int(0.007 * h), h // 25))
@@ -92,8 +101,8 @@ def _try_blue_panel_margins(bgr: np.ndarray) -> tuple[float, float, float, float
     r_hi = w - rim_x
     if l_hi <= l_lo or r_hi <= r_lo:
         return None
-    l_strip = float(np.mean(col_b[l_lo:l_hi]))
-    r_strip = float(np.mean(col_b[r_lo:r_hi]))
+    l_strip = float(np.mean(col_stat[l_lo:l_hi]))
+    r_strip = float(np.mean(col_stat[r_lo:r_hi]))
     if r_strip > 0.24 or l_strip > 0.24:
         return None
 
@@ -109,9 +118,9 @@ def _try_blue_panel_margins(bgr: np.ndarray) -> tuple[float, float, float, float
     corner_base = float(np.mean(corner_samples))
 
     mid_lo, mid_hi = int(0.36 * w), int(0.64 * w)
-    peak_c = float(np.percentile(col_b[mid_lo:mid_hi], 93)) if mid_hi > mid_lo + 2 else 0.0
+    peak_c = float(np.percentile(col_stat[mid_lo:mid_hi], 93)) if mid_hi > mid_lo + 2 else 0.0
     mid_r0, mid_r1 = int(0.38 * h), int(0.62 * h)
-    peak_r = float(np.percentile(row_b[mid_r0:mid_r1], 93)) if mid_r1 > mid_r0 + 2 else 0.0
+    peak_r = float(np.percentile(row_stat[mid_r0:mid_r1], 93)) if mid_r1 > mid_r0 + 2 else 0.0
     if peak_c < 0.18 or peak_r < 0.18:
         return None
 
@@ -122,10 +131,10 @@ def _try_blue_panel_margins(bgr: np.ndarray) -> tuple[float, float, float, float
     thresh_c = base_c + frac * (peak_c - base_c)
     thresh_r = corner_base + frac * (peak_r - corner_base)
 
-    left = _first_ge_cross_subpx(col_b, rim_x, w_band, thresh_c)
-    right = _first_ge_cross_subpx(col_b[::-1], rim_x, w_band, thresh_c)
-    top = _first_ge_cross_subpx(row_b, rim_y, h_band, thresh_r)
-    bottom = _first_ge_cross_subpx(row_b[::-1], rim_y, h_band, thresh_r)
+    left = _first_ge_cross_subpx(col_cross, rim_x, w_band, thresh_c)
+    right = _first_ge_cross_subpx(col_cross[::-1], rim_x, w_band, thresh_c)
+    top = _first_ge_cross_subpx(row_cross, rim_y, h_band, thresh_r)
+    bottom = _first_ge_cross_subpx(row_cross[::-1], rim_y, h_band, thresh_r)
 
     if None in (left, right, top, bottom):
         return None
@@ -143,8 +152,8 @@ def _try_blue_panel_margins(bgr: np.ndarray) -> tuple[float, float, float, float
     meta = {
         "method": "blue_panel_hsv",
         "rejected": False,
-        "col_sig": col_b,
-        "row_sig": row_b,
+        "col_sig": col_cross,
+        "row_sig": row_cross,
     }
     return left, right, top, bottom, meta
 
@@ -272,10 +281,24 @@ def measure_margins_combined(warped_bgr: np.ndarray) -> tuple[float, float, floa
     if pmeta.get("rejected"):
         ymeta.setdefault("col_sig", np.zeros(warped_bgr.shape[1], dtype=np.float32))
         ymeta.setdefault("row_sig", np.zeros(warped_bgr.shape[0], dtype=np.float32))
+        hh, ww = warped_bgr.shape[:2]
+        sw = max(5, min(ww // 32, 21) | 1)
+        sh = max(5, min(hh // 28, 25) | 1)
+        bias_lr = _edge_projection_inward_bias_px(sw)
+        bias_tb = _edge_projection_inward_bias_px(sh)
+        yl = float(np.clip(yl + bias_lr, 0.0, ww / 2.0 - 1.0))
+        yr = float(np.clip(yr + bias_lr, 0.0, ww / 2.0 - 1.0))
+        yt = float(np.clip(yt + bias_tb, 0.0, hh / 2.0 - 1.0))
+        yb = float(np.clip(yb + bias_tb, 0.0, hh / 2.0 - 1.0))
+        ymeta = dict(ymeta)
+        ymeta["method"] = "yellow_hsv+inward_bias"
         return yl, yr, yt, yb, ymeta
 
     dlr = abs(lr_share(yl, yr) - lr_share(proj_l, proj_r))
     dtb = abs(tb_share(yt, yb) - tb_share(proj_t, proj_b))
+    # Heavy projection weight: yellow uses integer seam indices and can skew 60/40 vs 40/60 by 1–2%.
+    _PROJ_BLEND = 0.94
+    _YL_BLEND = 1.0 - _PROJ_BLEND
     if dlr <= 8.0 and dtb <= 8.0:
         meta = {
             "method": "edge_projection+yellow_nudge",
@@ -284,10 +307,10 @@ def measure_margins_combined(warped_bgr: np.ndarray) -> tuple[float, float, floa
             "row_sig": pmeta.get("row_sig"),
         }
         return (
-            0.88 * proj_l + 0.12 * yl,
-            0.88 * proj_r + 0.12 * yr,
-            0.88 * proj_t + 0.12 * yt,
-            0.88 * proj_b + 0.12 * yb,
+            _PROJ_BLEND * proj_l + _YL_BLEND * yl,
+            _PROJ_BLEND * proj_r + _YL_BLEND * yr,
+            _PROJ_BLEND * proj_t + _YL_BLEND * yt,
+            _PROJ_BLEND * proj_b + _YL_BLEND * yb,
             meta,
         )
 

@@ -19,11 +19,11 @@ class CenteringMetrics(BaseModel):
     top_bottom: str = Field(..., description="Top vs bottom split, e.g. '52/48'")
     lr_small_pct: float = Field(
         ...,
-        description="Smaller LR margin as %% of (left+right); PSA tiers use this with safe_div smoothing",
+        description="Smaller LR margin as %% of (left+right); PSA tiers use this value",
     )
     tb_small_pct: float = Field(
         ...,
-        description="Smaller TB margin as %% of (top+bottom); tiers use this with safe_div smoothing",
+        description="Smaller TB margin as %% of (top+bottom); PSA tiers use this value",
     )
     margins_px: MarginsPx = Field(..., description="Measured margins in pixels")
 

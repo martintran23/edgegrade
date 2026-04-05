@@ -53,8 +53,8 @@ class TestCenteringProjectionSynthetic(unittest.TestCase):
         rd = compute_centering_ratios(l, r, t, b)
         lr = _parse_split(str(rd["lr_display"]))
         tb = _parse_split(str(rd["tb_display"]))
-        self.assertLess(abs(lr - 50), 3.1, msg=f"LR got {lr} margins={l:.1f},{r:.1f}")
-        self.assertLess(abs(tb - 50), 3.1, msg=f"TB got {tb} margins={t:.1f},{b:.1f}")
+        self.assertLess(abs(lr - 50), 1.1, msg=f"LR got {lr} margins={l:.1f},{r:.1f}")
+        self.assertLess(abs(tb - 50), 1.1, msg=f"TB got {tb} margins={t:.1f},{b:.1f}")
 
     def test_60_40_left_right(self) -> None:
         h, w = 1120, 800
@@ -65,7 +65,26 @@ class TestCenteringProjectionSynthetic(unittest.TestCase):
         self.assertFalse(meta.get("rejected"), msg=str(meta))
         rd = compute_centering_ratios(l, r, t, b)
         lr = _parse_split(str(rd["lr_display"]))
-        self.assertLess(abs(lr - 60), 3.1, msg=f"LR got {lr} expected ~60 margins={l:.1f},{r:.1f}")
+        self.assertLess(abs(lr - 60), 1.1, msg=f"LR got {lr} expected ~60 margins={l:.1f},{r:.1f}")
+        self.assertEqual(str(rd["lr_display"]), "60/40", msg=f"display {rd['lr_display']} margins={l:.3f},{r:.3f}")
+
+    def test_40_60_left_right(self) -> None:
+        h, w = 1120, 800
+        bl, br = 48, 72
+        m = 56
+        im = _synth_card(h, w, bl, br, m, m)
+        l, r, t, b, meta = measure_margins_edge_projection(im)
+        self.assertFalse(meta.get("rejected"), msg=str(meta))
+        rd = compute_centering_ratios(l, r, t, b)
+        self.assertEqual(str(rd["lr_display"]), "40/60", msg=f"display {rd['lr_display']} margins={l:.3f},{r:.3f}")
+
+    def test_60_40_combined_with_yellow_nudge(self) -> None:
+        h, w = 1120, 800
+        im = _synth_card(h, w, 72, 48, 56, 56)
+        l, r, t, b, meta = measure_margins_combined(im)
+        self.assertFalse(meta.get("rejected"), msg=str(meta))
+        rd = compute_centering_ratios(l, r, t, b)
+        self.assertEqual(str(rd["lr_display"]), "60/40", msg=f"{meta.get('method')} {rd['lr_display']} {l:.3f},{r:.3f}")
 
     def test_55_45_top_bottom(self) -> None:
         h, w = 1120, 800
@@ -77,7 +96,7 @@ class TestCenteringProjectionSynthetic(unittest.TestCase):
         rd = compute_centering_ratios(l, r, t, b)
         tb = _parse_split(str(rd["tb_display"]))
         exp = 100.0 * bt / (bt + bb)
-        self.assertLess(abs(tb - exp), 3.1, msg=f"TB got {tb} expected ~{exp:.0f} t,b={t:.1f},{b:.1f}")
+        self.assertLess(abs(tb - exp), 1.1, msg=f"TB got {tb} expected ~{exp:.0f} t,b={t:.1f},{b:.1f}")
 
 
 class TestReferenceSilverBlueCentered(unittest.TestCase):

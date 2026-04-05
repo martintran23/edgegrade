@@ -11,6 +11,8 @@ Web app that analyzes photos of trading cards (Pokémon, sports, and similar) wi
 
 Planned later: surface defects, edge/corner analysis, scanner integration, persistent scan history (see `backend/app/ml/` and `backend/app/storage/` stubs).
 
+**Note:** Centering measurement and PSA-style tier thresholds are still heuristic (especially across card eras and frame colors). Expect ongoing refinement of both **centering** accuracy and **grading** calibration against real slabs and published standards.
+
 ## Tech stack
 
 | Layer | Technology |

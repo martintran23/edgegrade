@@ -27,6 +27,13 @@ class TestComputePsaGrade(unittest.TestCase):
         self.assertEqual(r["lr_display"], "45/55")
         self.assertEqual(r["tb_display"], "40/60")
 
+    def test_equal_margins_exact_fifty_pct(self) -> None:
+        r = compute_centering_ratios(24.5, 24.5, 28.0, 28.0)
+        self.assertAlmostEqual(r["lr_small"], 50.0)
+        self.assertAlmostEqual(r["tb_small"], 50.0)
+        self.assertEqual(r["lr_display"], "50/50")
+        self.assertEqual(r["tb_display"], "50/50")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,6 +19,19 @@ _CORE_Y1_FRAC = 0.88
 _CORE_X0_FRAC = 0.12
 _CORE_X1_FRAC = 0.88
 
+# Gaussian (5×5) + Scharr + smoothed projection peaks sit slightly **inside** the true
+# print edge on sharp step borders. Calibrated on rectangular synth cards so uneven
+# centering (e.g. 60/40) keeps the correct split; symmetric bias cancels for 50/50.
+_INWARD_BIAS_PER_SMOOTH_PX = 0.5
+# Slightly above the minimal synth fit so real warps / peak-vs-cross picks still land on
+# 60/40 and 40/60 (not 62/38 / 41/59) when blur shifts the seam a fraction of a pixel more.
+_INWARD_BIAS_INTERCEPT_PX = 1.06
+
+
+def _edge_projection_inward_bias_px(smooth_window: int) -> float:
+    wn = int(max(3, smooth_window | 1))
+    return _INWARD_BIAS_PER_SMOOTH_PX * float(wn) + _INWARD_BIAS_INTERCEPT_PX
+
 
 def _smooth_1d(sig: np.ndarray, window: int) -> np.ndarray:
     w = max(3, window | 1)
@@ -214,17 +227,28 @@ def measure_margins_edge_projection(
         "peak_tb": peak_tb,
     }
 
-    # Sanity: total measurable frame must be meaningful vs card size.
+    bias_lr = _edge_projection_inward_bias_px(sw)
+    bias_tb = _edge_projection_inward_bias_px(sh)
+    left = float(np.clip(left + bias_lr, 0.0, w / 2.0 - 1.0))
+    right = float(np.clip(right + bias_lr, 0.0, w / 2.0 - 1.0))
+    top = float(np.clip(top + bias_tb, 0.0, h / 2.0 - 1.0))
+    bottom = float(np.clip(bottom + bias_tb, 0.0, h / 2.0 - 1.0))
+    meta["bias_lr_px"] = bias_lr
+    meta["bias_tb_px"] = bias_tb
+
+    # Sanity: total measurable frame must be meaningful vs card size (after bias correction).
     min_lr = max(16.0, 0.05 * float(w))
     min_tb = max(16.0, 0.05 * float(h))
     if left + right < min_lr or top + bottom < min_tb:
         meta["rejected"] = True
         meta["reason"] = "margin_sum_too_small"
-        # Keep raw measurements; grading applies a floor when ``rejected`` (see centering.py).
+        # Keep measurements; grading applies a floor when ``rejected`` (see centering.py).
     elif left + right >= w or top + bottom >= h:
         meta["rejected"] = True
         meta["reason"] = "margins_overflow"
         left = right = float(w) / 4.0
         top = bottom = float(h) / 4.0
+        meta.pop("bias_lr_px", None)
+        meta.pop("bias_tb_px", None)
 
     return left, right, top, bottom, meta
