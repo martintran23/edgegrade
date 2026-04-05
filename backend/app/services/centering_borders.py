@@ -15,6 +15,37 @@ import numpy as np
 from app.services.centering_projection import _smooth_1d, measure_margins_edge_projection
 
 
+def _first_ge_cross_subpx(sig: np.ndarray, lo: int, hi: int, thresh: float) -> float | None:
+    """
+    Sub-pixel position of the first transition to ``sig[i] >= thresh`` scanning ``i`` upward
+    from ``lo + 1`` to ``hi - 1``. Returns distance from index 0 of ``sig`` (same units as
+    integer column/row indices). ``None`` if no crossing in range.
+    """
+    hi = min(hi, len(sig))
+    lo = max(0, lo)
+    for i in range(max(lo + 1, 1), hi):
+        v1 = float(sig[i])
+        if v1 < thresh:
+            continue
+        v0 = float(sig[i - 1])
+        if v1 <= v0 + 1e-6:
+            return float(i)
+        t = (thresh - v0) / (v1 - v0)
+        return float(i - 1) + max(0.0, min(1.0, t))
+    return None
+
+
+def _symmetry_nudge(a: float, b: float, *, rel: float, floor_px: float) -> tuple[float, float]:
+    """When imbalance is within expected seam noise, use the mean (physical cards are often symmetric)."""
+    s = a + b
+    if s <= 1e-6:
+        return a, b
+    if abs(a - b) <= max(floor_px, rel * s):
+        m = 0.5 * (a + b)
+        return m, m
+    return a, b
+
+
 def _try_blue_panel_margins(bgr: np.ndarray) -> tuple[float, float, float, float, dict] | None:
     """
     Silver/gray outer border with a **blue/cyan inner frame** (e.g. Scarlet & Violet).
@@ -66,6 +97,17 @@ def _try_blue_panel_margins(bgr: np.ndarray) -> tuple[float, float, float, float
     if r_strip > 0.24 or l_strip > 0.24:
         return None
 
+    ch, cw = max(4, int(0.024 * h)), max(4, int(0.024 * w))
+    corner_samples = np.concatenate(
+        [
+            inner[:ch, :cw].ravel(),
+            inner[:ch, -cw:].ravel(),
+            inner[-ch:, :cw].ravel(),
+            inner[-ch:, -cw:].ravel(),
+        ]
+    )
+    corner_base = float(np.mean(corner_samples))
+
     mid_lo, mid_hi = int(0.36 * w), int(0.64 * w)
     peak_c = float(np.percentile(col_b[mid_lo:mid_hi], 93)) if mid_hi > mid_lo + 2 else 0.0
     mid_r0, mid_r1 = int(0.38 * h), int(0.62 * h)
@@ -73,32 +115,23 @@ def _try_blue_panel_margins(bgr: np.ndarray) -> tuple[float, float, float, float
     if peak_c < 0.18 or peak_r < 0.18:
         return None
 
-    thresh_c = 0.44 * peak_c
-    thresh_r = 0.44 * peak_r
+    # Strip mean (silver) as column baseline; corners as row baseline (top/bottom strips mix
+    # rounded corners / anti-alias and skew row-only baselines).
+    base_c = 0.5 * (l_strip + r_strip)
+    frac = 0.46
+    thresh_c = base_c + frac * (peak_c - base_c)
+    thresh_r = corner_base + frac * (peak_r - corner_base)
 
-    left = None
-    for x in range(rim_x, w_band):
-        if col_b[x] >= thresh_c:
-            left = float(x)
-            break
-    right = None
-    for x in range(w - 1 - rim_x, int(0.52 * w), -1):
-        if col_b[x] >= thresh_c:
-            right = float((w - 1) - x)
-            break
-    top = None
-    for y in range(rim_y, h_band):
-        if row_b[y] >= thresh_r:
-            top = float(y)
-            break
-    bottom = None
-    for y in range(h - 1 - rim_y, int(0.52 * h), -1):
-        if row_b[y] >= thresh_r:
-            bottom = float((h - 1) - y)
-            break
+    left = _first_ge_cross_subpx(col_b, rim_x, w_band, thresh_c)
+    right = _first_ge_cross_subpx(col_b[::-1], rim_x, w_band, thresh_c)
+    top = _first_ge_cross_subpx(row_b, rim_y, h_band, thresh_r)
+    bottom = _first_ge_cross_subpx(row_b[::-1], rim_y, h_band, thresh_r)
 
     if None in (left, right, top, bottom):
         return None
+
+    left, right = _symmetry_nudge(left, right, rel=0.055, floor_px=2.5)
+    top, bottom = _symmetry_nudge(top, bottom, rel=0.085, floor_px=3.5)
 
     if not (0.012 * w <= left <= 0.22 * w and 0.012 * w <= right <= 0.22 * w):
         return None

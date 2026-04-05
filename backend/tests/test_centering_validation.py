@@ -94,8 +94,11 @@ class TestReferenceSilverBlueCentered(unittest.TestCase):
         self.assertEqual(meta.get("method"), "blue_panel_hsv", msg=str(meta))
         rd = compute_centering_ratios(l, r, t, b)
         lr = _parse_split(str(rd["lr_display"]))
+        tb = _parse_split(str(rd["tb_display"]))
         self.assertLess(abs(lr - 50), 4.0, msg=f"LR {lr} margins L,R={l:.1f},{r:.1f}")
+        self.assertLess(abs(tb - 50), 4.0, msg=f"TB {tb} margins T,B={t:.1f},{b:.1f}")
         self.assertLess(abs(l - r), max(6.0, 0.04 * (l + r)), msg=f"asymmetric LR {l:.1f},{r:.1f}")
+        self.assertLess(abs(t - b), max(6.0, 0.06 * (t + b)), msg=f"asymmetric TB {t:.1f},{b:.1f}")
 
 
 if __name__ == "__main__":
