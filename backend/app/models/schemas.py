@@ -51,3 +51,7 @@ class AnalyzeCardResponse(BaseModel):
         None,
         description="Which seam detector produced margins (e.g. yellow_hsv, blue_panel_hsv, edge_projection)",
     )
+    centering_build: str | None = Field(
+        None,
+        description="Pipeline build id — if this does not match your checkout, the API is stale",
+    )

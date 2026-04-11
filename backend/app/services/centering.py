@@ -27,6 +27,9 @@ from app.services.centering_grades import (
 
 logger = logging.getLogger(__name__)
 
+# Bump when centering logic changes; shown in API so clients can confirm they hit this code.
+CENTERING_PIPELINE_BUILD = "2026-04-04d"
+
 
 def compute_centering_margins(
     warped_bgr: np.ndarray,
@@ -93,4 +96,5 @@ def build_analyze_response(
         warp_height=hh,
         detection_confidence=detection_confidence,
         centering_method=str(meta.get("method")) if meta.get("method") is not None else None,
+        centering_build=CENTERING_PIPELINE_BUILD,
     )

@@ -16,7 +16,11 @@ import numpy as np
 
 from app.core.config import settings
 from app.services.card_detection import decode_image_from_bytes, extract_normalized_card
-from app.services.centering_borders import measure_margins_combined, _try_yellow_frame_margins
+from app.services.centering_borders import (
+    _apply_tb_rim_symmetry_guard,
+    measure_margins_combined,
+    _try_yellow_frame_margins,
+)
 from app.services.centering_grades import compute_centering_ratios
 from app.services.centering_projection import measure_margins_edge_projection
 
@@ -88,7 +92,15 @@ class TestCenteringProjectionSynthetic(unittest.TestCase):
         self.assertEqual(str(rd["lr_display"]), "60/40", msg=f"{meta.get('method')} {rd['lr_display']} {l:.3f},{r:.3f}")
         self.assertIn(
             meta.get("method"),
-            ("edge_projection+yellow_nudge", "yellow_hsv", "yellow_hsv_preferred_tb_vs_projection"),
+            (
+                "edge_projection+yellow_nudge",
+                "yellow_hsv",
+                "yellow_hsv_relaxed",
+                "yellow_hsv_preferred_tb_vs_projection",
+                "yellow_hsv_preferred_lr_vs_projection",
+                "yellow_hsv_fallback_vs_projection",
+                "yellow_hsv_relaxed_fallback_vs_projection",
+            ),
             msg=str(meta),
         )
 
@@ -103,6 +115,26 @@ class TestCenteringProjectionSynthetic(unittest.TestCase):
         tb = _parse_split(str(rd["tb_display"]))
         exp = 100.0 * bt / (bt + bb)
         self.assertLess(abs(tb - exp), 1.1, msg=f"TB got {tb} expected ~{exp:.0f} t,b={t:.1f},{b:.1f}")
+
+
+class TestTbRimSymmetryGuard(unittest.TestCase):
+    def test_snaps_when_rim_yellow_and_tb_extreme(self) -> None:
+        t, b, g = _apply_tb_rim_symmetry_guard(20.0, 60.0, 1120, 0.5)
+        self.assertTrue(g)
+        self.assertAlmostEqual(t, 40.0)
+        self.assertAlmostEqual(b, 40.0)
+
+    def test_skips_when_rim_too_low_even_if_skewed(self) -> None:
+        t, b, g = _apply_tb_rim_symmetry_guard(20.0, 60.0, 1120, 0.02)
+        self.assertFalse(g)
+        self.assertEqual(t, 20.0)
+        self.assertEqual(b, 60.0)
+
+    def test_snaps_25_75_with_faint_rim(self) -> None:
+        t, b, g = _apply_tb_rim_symmetry_guard(25.0, 75.0, 1120, 0.06)
+        self.assertTrue(g)
+        self.assertAlmostEqual(t, 50.0)
+        self.assertAlmostEqual(b, 50.0)
 
 
 class TestYellowTbRobustness(unittest.TestCase):

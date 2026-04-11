@@ -68,6 +68,17 @@ body {
   word-break: break-word;
 }
 
+.api-hint {
+  margin: 0.75rem 0 0;
+  font-size: 0.8rem;
+  color: #7c828d;
+}
+
+.mono {
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.9em;
+}
+
 .layout {
   display: grid;
   gap: 1.5rem;

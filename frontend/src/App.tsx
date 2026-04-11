@@ -15,6 +15,7 @@ type AnalyzeResponse = {
   warp_height?: number | null;
   detection_confidence: string;
   centering_method?: string | null;
+  centering_build?: string | null;
 };
 
 export default function App() {
@@ -72,6 +73,9 @@ export default function App() {
         </label>
         {loading && <p className="status">Analyzing…</p>}
         {error && <p className="error">{error}</p>}
+        <p className="api-hint">
+          Backend: <span className="mono">{API_BASE}</span>
+        </p>
       </section>
 
       <div className="layout">
@@ -100,6 +104,12 @@ export default function App() {
                 <>
                   <dt>Centering method</dt>
                   <dd className="mono">{result.centering_method}</dd>
+                </>
+              )}
+              {result.centering_build != null && result.centering_build !== "" && (
+                <>
+                  <dt>Pipeline build</dt>
+                  <dd className="mono">{result.centering_build}</dd>
                 </>
               )}
               {result.warp_width != null && result.warp_height != null && (
